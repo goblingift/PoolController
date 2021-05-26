@@ -2,7 +2,11 @@
 #include <DallasTemperature.h>
 #include <Wire.h>
 #include <U8g2lib.h>
-#include <TimeLib.h>
+#include <WiFiManager.h>
+#include <time.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
 
 const unsigned char goblingift_logo [] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -968,6 +972,13 @@ DallasTemperature sensors(&oneWire);
 // variable to hold device addresses
 DeviceAddress Thermometer;
 
+// Manages wifi and connect to local wifi network
+WiFiManager wifiManager;
+
+// Time Server config
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, 7200);
+
 // Addresses of the two DS18B20s sensors
 uint8_t sensorPool[8] = { 0x28, 0xF9, 0x6A, 0x4E, 0x38, 0x19, 0x01, 0x58 };
 uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
@@ -981,8 +992,7 @@ bool enabledHeater = false;
 bool enabledPump = false;
 float temperatureHeater;
 float temperaturePool;
-int lastResetDay;
-int lastResetMonth;
+int lastResetDay = 0;
 // daily stats
 float morningTemperaturePool;
 float dailyTempChange;
@@ -1002,8 +1012,8 @@ int imageIndex = 1;
 
 // configuration variables
 float targetTemperature = 28.0;
-int dailyResetMinute = 40;
-int dailyResetHour = 19;
+int dailyResetMinute = 45;
+int dailyResetHour = 22;
 int measurementIntervalMillis = 1000;
 int updateScreenIntervalMillis = 200;
 // temperature difference of pool & heater which is required to switch engine valve
@@ -1027,6 +1037,8 @@ void setup() {
   pinMode(ledGreenPin, OUTPUT);
   pinMode(relayPump, OUTPUT);
   pinMode(relayEngineValve, OUTPUT);
+  digitalWrite(relayPump, LOW);
+  digitalWrite(relayEngineValve, LOW);
 
   // Begin Serial on 115200
   Serial.begin(115200);
@@ -1067,12 +1079,20 @@ void setup() {
 
   lastMeasurement = millis();
   lastScreenUpdate = millis();
+
+  Serial.println("Start initializing Wifi now");
+  //first parameter is name of access point, second is the password
+  wifiManager.autoConnect("ESP32-AP", "geheim123!");
+
+  timeClient.begin(); 
 }
 
-void loop() {
+void loop() { 
 
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
-    
+    timeClient.update();
+    Serial.println("Measure temperatures at: " + timeClient.getFormattedTime());
+  
     handleTemperatureMeasurement();
     writeStats();
     handlePumpAndValve();
@@ -1122,14 +1142,11 @@ void handlePumpAndValve() {
   dailyPumpRuntimeReached = dailyPumpRuntime > definedPumpRuntimeMillis;
   Serial.println("definedPumpRuntimeMillis=" + String(definedPumpRuntimeMillis));
   Serial.println("dailyPumpRuntimeReached=" + String(dailyPumpRuntimeReached));
-  time_t t = now();
-  int actHour = hour(t);
-  int actMinute = minute(t);
-  int actSecond = second(t);
-  Serial.println("current hour=" + String(actHour));
-  Serial.println("current sec=" + String(actSecond));
+
+  Serial.println("current hour=" + String(timeClient.getHours()));
+  Serial.println("current mins=" + String(timeClient.getMinutes()));
   
-  pumpAlwaysOn = hour(now()) >= latestHourToStartPump && !dailyPumpRuntimeReached;
+  pumpAlwaysOn = timeClient.getHours() >= latestHourToStartPump && !dailyPumpRuntimeReached;
   
   bool targetIsHeating = temperaturePool < targetTemperature;
   unsigned long timeDiffLastEngineValveSwitch = millis() - lastChangeEngineValve;
@@ -1154,7 +1171,6 @@ void handlePumpAndValve() {
       stopPump();
     }
   }
-
 
   if (pumpAlwaysOn) {
     Serial.println("Starting pump - because we already passed the latest time for starting pump.");
@@ -1181,7 +1197,7 @@ void stopPump() {
 void heaterOff() {
   if (enabledHeater && timeDiffEngineValvePassed) {
     Serial.println("Open engine-valve now");
-    digitalWrite(relayEngineValve, HIGH);
+    digitalWrite(relayEngineValve, LOW);
     enabledHeater = false;
     lastChangeEngineValve = millis();
   }
@@ -1189,7 +1205,7 @@ void heaterOff() {
 void heaterOn() {
   if (!enabledHeater && timeDiffEngineValvePassed) {
     Serial.println("Close engine-valve now");
-    digitalWrite(relayEngineValve, LOW);
+    digitalWrite(relayEngineValve, HIGH);
     enabledHeater = true;
     lastChangeEngineValve = millis();
   }
@@ -1327,7 +1343,11 @@ void calculateWeatherToday() {
       todayWeather = 3;
     } else {
       // heater was enabled today, calculate how many percentage
-      float percentageHeated = dailyHeaterRuntime / dailyPumpRuntime;
+      float percentageHeated = (float)dailyHeaterRuntime / (float)dailyPumpRuntime;
+      Serial.print("Calculating heattime: ");
+      Serial.print(String(dailyHeaterRuntime));
+      Serial.print("_____");
+      Serial.println(String(dailyPumpRuntime));
       Serial.println("Calculated heattime% "  + String(percentageHeated));
 
       if (percentageHeated >= 0.75) {
@@ -1368,22 +1388,26 @@ String convertTemperature(float tempC) {
 
 // This method will reset daily stats (like pump-runtime, temp-difference) at a specific given time
 void tryToResetDailyStats() {
-  time_t t = now();
-  int actHour = hour(t);
-  int actMinute = minute(t);
 
-  if ((actHour == dailyResetHour) && (actMinute == dailyResetMinute)) {
-    Serial.println("TIMER TRIGGERED - RESET DAILY STATS");
-    dailyTempChange = 0.0;
-    dailyPumpRuntime = 0;
-    dailyHeaterRuntime = 0;
-    morningTemperaturePool = temperaturePool;
-    dailyPumpRuntimeReached = false;
-    pumpAlwaysOn = false;
-    timeDiffEngineValvePassed = false;
-    todayWeather = 0;
+  int actDay = timeClient.getDay();
+  int actHour = timeClient.getHours();
+  int actMinute = timeClient.getMinutes();
+
+  if (lastResetDay != actDay) {
+    if ((actHour == dailyResetHour) && (actMinute == dailyResetMinute)) {
+      Serial.println("TIMER TRIGGERED - RESET DAILY STATS");
+      dailyTempChange = 0.0;
+      dailyPumpRuntime = 0;
+      dailyHeaterRuntime = 0;
+      morningTemperaturePool = temperaturePool;
+      dailyPumpRuntimeReached = false;
+      pumpAlwaysOn = false;
+      timeDiffEngineValvePassed = false;
+      todayWeather = 0;
+      lastResetDay = actDay;
+    }
   }
-  
+    
 }
 
 void types(String a) { Serial.println("it's a String"); }
