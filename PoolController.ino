@@ -994,6 +994,8 @@ long dailyHeaterRuntime = 0;
 bool pumpAlwaysOn;
 bool dailyPumpRuntimeReached;
 bool timeDiffEngineValvePassed;
+// Contains todays weather. 0 if no data today. 1 for sunny, 2 for sunny/cloudy and 3 for cloudy.
+byte todayWeather = 0;
 
 //stores the current image index- for animation purpose
 int imageIndex = 1;
@@ -1132,14 +1134,6 @@ void handlePumpAndValve() {
   bool targetIsHeating = temperaturePool < targetTemperature;
   unsigned long timeDiffLastEngineValveSwitch = millis() - lastChangeEngineValve;
   timeDiffEngineValvePassed = timeDiffLastEngineValveSwitch >= engineValveSwitchingTimespanSeconds * 1000;
-
-  Serial.println("temperaturePool=" + String(temperaturePool));
-  Serial.println("temperatureHeater=" + String(temperatureHeater));
-  Serial.println("dailyPumpRuntime=" + String(dailyPumpRuntime));
-
-  Serial.println("pumpAlwaysOn=" + String(pumpAlwaysOn));
-  Serial.println("targetIsHeating=" + String(targetIsHeating));
-  Serial.println("timeDiffEngineValvePassed=" + String(timeDiffEngineValvePassed));
   
   if (targetIsHeating) {
     // Pool needs to be heated up
@@ -1169,7 +1163,6 @@ void handlePumpAndValve() {
 }
 
 void startPump() {
-  Serial.println("Called startPump()");
   if (!enabledPump && !dailyPumpRuntimeReached && timeDiffEngineValvePassed) {
     Serial.println("Starting pump now");
     digitalWrite(relayPump, HIGH);
@@ -1178,7 +1171,6 @@ void startPump() {
   }  
 }
 void stopPump() {
-  Serial.println("Called stopPump()");
   if (enabledPump && !pumpAlwaysOn && timeDiffEngineValvePassed) {
     Serial.println("Stop pump now");
     digitalWrite(relayPump, LOW);
@@ -1187,7 +1179,6 @@ void stopPump() {
   }
 }
 void heaterOff() {
-  Serial.println("Called heaterOff()");
   if (enabledHeater && timeDiffEngineValvePassed) {
     Serial.println("Open engine-valve now");
     digitalWrite(relayEngineValve, HIGH);
@@ -1196,7 +1187,6 @@ void heaterOff() {
   }
 }
 void heaterOn() {
-  Serial.println("Called heaterOn()");
   if (!enabledHeater && timeDiffEngineValvePassed) {
     Serial.println("Close engine-valve now");
     digitalWrite(relayEngineValve, LOW);
@@ -1241,7 +1231,6 @@ void updateDisplay() {
       switch(imageIndex) {
         case 1:
           u8g2.drawXBMP(0, 0, 128, 64, background_non_heater_pump_1);
-          
           imageIndex++;
           break;
         case 2:
@@ -1278,10 +1267,21 @@ void updateDisplay() {
   
   printDailyHeaterRuntime();
   printDailyPumpRuntime();
+  calculateWeatherToday();
   
   u8g2.setFont(u8g2_font_unifont_t_symbols);
-  u8g2.drawGlyph(65, 2, 0x2600);  /*  hex 2600 sunny */
-  
+  switch(todayWeather) {
+    case 1:
+      u8g2.drawGlyph(65, 2, 0x2600);  /*  hex 2600 sunny */
+      break;
+    case 2:
+      u8g2.drawGlyph(65, 2, 0x2601);  /*  hex 2601 cloudy */
+      break;
+    case 3:
+      u8g2.drawGlyph(65, 2, 0x2602);  /*  hex 2602 rainy */
+      break;
+  }
+   
   u8g2.sendBuffer();  
 }
 
@@ -1319,15 +1319,29 @@ void printDailyPumpRuntime() {
   }
 }
 
-// Returns the daily runtime of the pump as String (with hours/minutes suffix)
-String calculateDailyPumpRuntime() {
-  
-}
-
 // Calculates if todays weather is sunny or cloudy (If heater was used or not)
-uint16_t calculateWeatherToday() {
+void calculateWeatherToday() {
+  if (dailyPumpRuntime > 0) {
+    if (dailyHeaterRuntime <= 0) {
+      // heater wasnt enabled today, set to cloudy
+      todayWeather = 3;
+    } else {
+      // heater was enabled today, calculate how many percentage
+      float percentageHeated = dailyHeaterRuntime / dailyPumpRuntime;
+      Serial.println("Calculated heattime% "  + String(percentageHeated));
 
-  
+      if (percentageHeated >= 0.75) {
+        // sunny today
+        todayWeather = 1;
+      } else if (percentageHeated >= 0.25) {
+        // sunny/cloudy today
+        todayWeather = 2;
+      } else {
+        // cloudy today
+        todayWeather = 3;
+      }
+    }
+  }
 }
 
 void printAddress(DeviceAddress deviceAddress) { 
@@ -1343,7 +1357,6 @@ void printAddress(DeviceAddress deviceAddress) {
 
 float readTemperature(DeviceAddress deviceAddress) {
   float tempC = sensors.getTempC(deviceAddress);
-  Serial.println("Read temperature: " + String(tempC));
   return tempC;
 }
 
@@ -1368,6 +1381,7 @@ void tryToResetDailyStats() {
     dailyPumpRuntimeReached = false;
     pumpAlwaysOn = false;
     timeDiffEngineValvePassed = false;
+    todayWeather = 0;
   }
   
 }
