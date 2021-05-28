@@ -6,6 +6,7 @@
 #include <time.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <Preferences.h>
 
 
 const unsigned char goblingift_logo [] = {
@@ -975,10 +976,18 @@ DeviceAddress Thermometer;
 
 // Manages wifi and connect to local wifi network
 WiFiManager wifiManager;
+WiFiManagerParameter config_targetTemperature;
+WiFiManagerParameter config_definedPumpRuntime;
+WiFiManagerParameter config_latestHourToStartPump;
+WiFiManagerParameter config_temperatureDifference;
+WiFiManagerParameter config_engineValveSwitchingTimespanSeconds;
 
 // Time Server config
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, 7200);
+
+// Read and save preferences to EEPROM
+Preferences preferences;
 
 // Addresses of the two DS18B20s sensors
 uint8_t sensorPool[8] = { 0x28, 0xF9, 0x6A, 0x4E, 0x38, 0x19, 0x01, 0x58 };
@@ -1013,24 +1022,36 @@ unsigned long lastTimeSetupButtonPressed;
 int imageIndex = 1;
 
 // configuration variables
-float targetTemperature = 28.0;
-int dailyResetMinute = 45;
-int dailyResetHour = 22;
+float targetTemperature = 35.0;
+int dailyResetMinute = 00;
+int dailyResetHour = 6;
 int measurementIntervalMillis = 1000;
 int updateScreenIntervalMillis = 200;
 // temperature difference of pool & heater which is required to switch engine valve
-float definedTemperatureDifference = 1.5;
+float definedTemperatureDifference = 5.0;
 // defines how long system will wait until switching valve again
 int engineValveSwitchingTimespanSeconds = 10;
 float definedPumpRuntime = 8.0;
 // at which hour shall the pump get started
 int latestHourToStartPump = 18;
 // defines how long the manual started configuration should be visible
-int manualConfigTimeout = 30000;
+int manualConfigTimeout = 60000;
+
+// EEPROM keys
+const char* EEPROM_targetTemp = "targetTemp";
+const char* EEPROM_pumpRuntime = "pumpRuntime";
+const char* EEPROM_pumpStartAt = "pumpStartAt";
+const char* EEPROM_tempDiff = "tempDiff";
+const char* EEPROM_valveSwitching = "valveSwitching";
 
 // +++++++++++++++++ Mighty setup method ++++++++++++++++
 void setup() {
+  // Begin Serial on 115200
+  Serial.begin(115200);
 
+  readConfigFromEEPROM();
+  configureWifiApSetupMenu();
+  
   u8g2.begin();
   u8g2.setFont(u8g2_font_6x10_tf);
   u8g2.setFontRefHeightExtendedText();
@@ -1044,9 +1065,6 @@ void setup() {
   pinMode(setupButtonPin, INPUT);
   digitalWrite(relayPump, LOW);
   digitalWrite(relayEngineValve, LOW);
-
-  // Begin Serial on 115200
-  Serial.begin(115200);
 
   // Start the DS18B20 sensor
   sensors.begin();
@@ -1087,9 +1105,93 @@ void setup() {
 
   Serial.println("Start initializing Wifi now");
   //first parameter is name of access point, second is the password
-  wifiManager.autoConnect("ESP32-AP", "geheim123!");
+  wifiManager.autoConnect("ESP32-AP");
 
   timeClient.begin(); 
+}
+
+// Defines the html view of the configuration setup menu and which values will get stored into EEPROM afterwards
+void configureWifiApSetupMenu() {
+
+  const char* input_config_targetTemperature = "<br/><label for='config_targetTemperature'>Target Temperature (celsius)</label><input type='text' name='config_targetTemperature'>";
+  new (&config_targetTemperature) WiFiManagerParameter(input_config_targetTemperature);
+  
+  const char* input_config_definedPumpRuntime = "<br/><label for='config_definedPumpRuntime'>Daily pump-runtime (hours)</label><input type='text' name='config_definedPumpRuntime'>";
+  new (&config_definedPumpRuntime) WiFiManagerParameter(input_config_definedPumpRuntime);
+  
+  const char* input_config_latestHourToStartPump = "<br/><label for='config_latestHourToStartPump'>Latest time to start pump (24h)</label><input type='text' name='config_latestHourToStartPump'>";
+  new (&config_latestHourToStartPump) WiFiManagerParameter(input_config_latestHourToStartPump);
+
+  const char* input_config_temperatureDifference = "<br/><label for='config_temperatureDifference'>Temperature difference required to switch</label><input type='text' name='config_temperatureDifference'>";
+  new (&config_temperatureDifference) WiFiManagerParameter(input_config_temperatureDifference);
+  
+  const char* input_config_engineValveSwitchingTimespanSeconds = "<br/><label for='config_engineValveSwitchingTimespanSeconds'>Required seconds between each engine-valve switch</label><input type='text' name='config_engineValveSwitchingTimespanSeconds'>";
+  new (&config_engineValveSwitchingTimespanSeconds) WiFiManagerParameter(input_config_engineValveSwitchingTimespanSeconds);
+    
+  std::vector<const char *> menu = {"wifi","info","param","sep","restart","exit"};
+  wifiManager.setMenu(menu);
+  wifiManager.addParameter(&config_targetTemperature);
+  wifiManager.addParameter(&config_definedPumpRuntime);
+  wifiManager.addParameter(&config_latestHourToStartPump);
+  wifiManager.addParameter(&config_temperatureDifference);
+  wifiManager.addParameter(&config_engineValveSwitchingTimespanSeconds);
+  wifiManager.setSaveParamsCallback(saveParamCallback);
+}
+
+String getParam(String name){
+  //read parameter from server, for customhmtl input
+  String value;
+  if(wifiManager.server->hasArg(name)) {
+    value = wifiManager.server->arg(name);
+  }
+  return value;
+}
+
+// Reading preferences from EEPROM (Which were set previous by Wifi-Config Page, or use default
+void readConfigFromEEPROM() {
+  
+  preferences.begin("pool-controller", true);
+    
+  targetTemperature = preferences.getFloat(EEPROM_targetTemp, targetTemperature);
+  Serial.println("Successful read and set targetTemp from EEPROM:" + String(targetTemperature));
+  
+  definedPumpRuntime = preferences.getFloat(EEPROM_pumpRuntime, definedPumpRuntime);
+  Serial.println("Successful read and set pumpRuntime from EEPROM:" + String(definedPumpRuntime));
+
+  latestHourToStartPump = preferences.getInt(EEPROM_pumpStartAt, latestHourToStartPump);
+  Serial.println("Successful read and set latestHourToStartPump from EEPROM:" + String(latestHourToStartPump));
+
+  definedTemperatureDifference = preferences.getFloat(EEPROM_tempDiff, definedTemperatureDifference);
+  Serial.println("Successful read and set definedTemperatureDifference from EEPROM:" + String(definedTemperatureDifference));
+
+  engineValveSwitchingTimespanSeconds = preferences.getInt(EEPROM_valveSwitching, engineValveSwitchingTimespanSeconds);
+  Serial.println("Successful read and set engineValveSwitchingTimespanSeconds from EEPROM:" + String(engineValveSwitchingTimespanSeconds));
+  
+  preferences.end();
+}
+
+void saveParamCallback(){
+  Serial.println("[CALLBACK] saveParamCallback fired");
+
+  float new_config_targetTemperature = getParam("config_targetTemperature").toFloat();
+  float new_config_definedPumpRuntime =  getParam("config_definedPumpRuntime").toFloat();
+  int new_config_latestHourToStartPump = getParam("config_latestHourToStartPump").toInt();
+  float new_config_temperatureDifference = getParam("config_temperatureDifference").toFloat();
+  int new_config_engineValveSwitchingTimespanSeconds = getParam("config_engineValveSwitchingTimespanSeconds").toInt();
+  
+  Serial.println("Save param to EEPROM: config_targetTemperature = " + String(new_config_targetTemperature));
+  Serial.println("Save param to EEPROM: config_definedPumpRuntime = " + String(new_config_definedPumpRuntime));
+  Serial.println("Save param to EEPROM: config_latestHourToStartPump = " + String(new_config_latestHourToStartPump));
+  Serial.println("Save param to EEPROM: config_temperatureDifference = " + String(new_config_temperatureDifference));
+  Serial.println("Save param to EEPROM: config_engineValveSwitchingTimespanSeconds = " + String(new_config_engineValveSwitchingTimespanSeconds));
+  
+  preferences.begin("pool-controller", false); 
+  preferences.putFloat(EEPROM_targetTemp, new_config_targetTemperature);
+  preferences.putFloat(EEPROM_pumpRuntime, new_config_definedPumpRuntime);
+  preferences.putInt(EEPROM_pumpStartAt, new_config_latestHourToStartPump);
+  preferences.putFloat(EEPROM_tempDiff, new_config_temperatureDifference);
+  preferences.putInt(EEPROM_valveSwitching, new_config_engineValveSwitchingTimespanSeconds);
+  preferences.end();
 }
 
 void loop() { 
@@ -1100,7 +1202,8 @@ void loop() {
     Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
 
     wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
-    wifiManager.startConfigPortal("OnDemandAP");
+    displayWifiApInformations();
+    wifiManager.startConfigPortal("ESP32-AP");
   }
 
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
@@ -1220,6 +1323,19 @@ void heaterOn() {
   }
 }
 
+void displayWifiApInformations() {
+  u8g2.clearBuffer();
+
+  u8g2.setFont(u8g2_font_HelvetiPixelOutline_te);
+  u8g2.setCursor(5, 0);
+  u8g2.print("-SETUP MODE-");
+  u8g2.setCursor(5, 25);
+  u8g2.print("Connect to Wifi:");
+  u8g2.setCursor(5, 50);
+  u8g2.print("ESP32-AP");
+  
+  u8g2.sendBuffer(); 
+}
 
 void updateDisplay() {
 
