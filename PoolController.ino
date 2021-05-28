@@ -1192,6 +1192,13 @@ void saveParamCallback(){
   preferences.putFloat(EEPROM_tempDiff, new_config_temperatureDifference);
   preferences.putInt(EEPROM_valveSwitching, new_config_engineValveSwitchingTimespanSeconds);
   preferences.end();
+
+  // Update runtime variables with new values
+  targetTemperature = new_config_targetTemperature;
+  definedPumpRuntime = new_config_definedPumpRuntime;
+  latestHourToStartPump = new_config_latestHourToStartPump;
+  definedTemperatureDifference = new_config_temperatureDifference;
+  engineValveSwitchingTimespanSeconds = new_config_engineValveSwitchingTimespanSeconds;
 }
 
 void loop() { 
