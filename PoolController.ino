@@ -957,11 +957,12 @@ static const unsigned char background_heater_pump_on_4[] PROGMEM = {
    
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
-// GPIO where the DS18B20 is connected to
+// GPIO connections
 const int oneWireBus = 4;
 const int ledGreenPin = 12;
 const int relayEngineValve = 26;
 const int relayPump = 27;
+const int setupButtonPin = 32;
 
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(oneWireBus);
@@ -1006,6 +1007,7 @@ bool dailyPumpRuntimeReached;
 bool timeDiffEngineValvePassed;
 // Contains todays weather. 0 if no data today. 1 for sunny, 2 for sunny/cloudy and 3 for cloudy.
 byte todayWeather = 0;
+unsigned long lastTimeSetupButtonPressed;
 
 //stores the current image index- for animation purpose
 int imageIndex = 1;
@@ -1023,6 +1025,8 @@ int engineValveSwitchingTimespanSeconds = 10;
 float definedPumpRuntime = 8.0;
 // at which hour shall the pump get started
 int latestHourToStartPump = 18;
+// defines how long the manual started configuration should be visible
+int manualConfigTimeout = 30000;
 
 // +++++++++++++++++ Mighty setup method ++++++++++++++++
 void setup() {
@@ -1037,6 +1041,7 @@ void setup() {
   pinMode(ledGreenPin, OUTPUT);
   pinMode(relayPump, OUTPUT);
   pinMode(relayEngineValve, OUTPUT);
+  pinMode(setupButtonPin, INPUT);
   digitalWrite(relayPump, LOW);
   digitalWrite(relayEngineValve, LOW);
 
@@ -1089,6 +1094,15 @@ void setup() {
 
 void loop() { 
 
+  int buttonState = digitalRead(setupButtonPin);
+  if ((buttonState == HIGH) && (millis() - lastTimeSetupButtonPressed >= manualConfigTimeout)) {
+    lastTimeSetupButtonPressed = millis();
+    Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+
+    wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
+    wifiManager.startConfigPortal("OnDemandAP");
+  }
+
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
     timeClient.update();
     Serial.println("Measure temperatures at: " + timeClient.getFormattedTime());
@@ -1140,11 +1154,6 @@ void handlePumpAndValve() {
 
   long definedPumpRuntimeMillis = ((long)(definedPumpRuntime * 3600000));
   dailyPumpRuntimeReached = dailyPumpRuntime > definedPumpRuntimeMillis;
-  Serial.println("definedPumpRuntimeMillis=" + String(definedPumpRuntimeMillis));
-  Serial.println("dailyPumpRuntimeReached=" + String(dailyPumpRuntimeReached));
-
-  Serial.println("current hour=" + String(timeClient.getHours()));
-  Serial.println("current mins=" + String(timeClient.getMinutes()));
   
   pumpAlwaysOn = timeClient.getHours() >= latestHourToStartPump && !dailyPumpRuntimeReached;
   
@@ -1344,11 +1353,6 @@ void calculateWeatherToday() {
     } else {
       // heater was enabled today, calculate how many percentage
       float percentageHeated = (float)dailyHeaterRuntime / (float)dailyPumpRuntime;
-      Serial.print("Calculating heattime: ");
-      Serial.print(String(dailyHeaterRuntime));
-      Serial.print("_____");
-      Serial.println(String(dailyPumpRuntime));
-      Serial.println("Calculated heattime% "  + String(percentageHeated));
 
       if (percentageHeated >= 0.75) {
         // sunny today
