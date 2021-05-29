@@ -979,6 +979,7 @@ WiFiManager wifiManager;
 WiFiManagerParameter config_targetTemperature;
 WiFiManagerParameter config_definedPumpRuntime;
 WiFiManagerParameter config_latestHourToStartPump;
+WiFiManagerParameter config_pumpShutdownTime;
 WiFiManagerParameter config_temperatureDifference;
 WiFiManagerParameter config_engineValveSwitchingTimespanSeconds;
 
@@ -989,9 +990,10 @@ NTPClient timeClient(ntpUDP, 7200);
 // Read and save preferences to EEPROM
 Preferences preferences;
 
-// Addresses of the two DS18B20s sensors
-uint8_t sensorPool[8] = { 0x28, 0xF9, 0x6A, 0x4E, 0x38, 0x19, 0x01, 0x58 };
+// integration system DS18B20s sensor addresses:
+uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
 uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
+
 
 // runtime variables
 unsigned long lastScreenUpdate;
@@ -1013,6 +1015,7 @@ long dailyHeaterRuntime = 0;
 // if the latestHourToStartPump has passed, pump should be always on
 bool pumpAlwaysOn;
 bool dailyPumpRuntimeReached;
+bool nightTimeReached;
 bool timeDiffEngineValvePassed;
 // Contains todays weather. 0 if no data today. 1 for sunny, 2 for sunny/cloudy and 3 for cloudy.
 byte todayWeather = 0;
@@ -1025,7 +1028,7 @@ int imageIndex = 1;
 float targetTemperature = 35.0;
 int dailyResetMinute = 00;
 int dailyResetHour = 6;
-int measurementIntervalMillis = 1000;
+int measurementIntervalMillis = 15000;
 int updateScreenIntervalMillis = 200;
 // temperature difference of pool & heater which is required to switch engine valve
 float definedTemperatureDifference = 5.0;
@@ -1034,6 +1037,8 @@ int engineValveSwitchingTimespanSeconds = 10;
 float definedPumpRuntime = 8.0;
 // at which hour shall the pump get started
 int latestHourToStartPump = 18;
+// until which time the pump is allowed to be powered on
+int pumpShutdownTime = 21;
 // defines how long the manual started configuration should be visible
 int manualConfigTimeout = 60000;
 
@@ -1043,6 +1048,7 @@ const char* EEPROM_pumpRuntime = "pumpRuntime";
 const char* EEPROM_pumpStartAt = "pumpStartAt";
 const char* EEPROM_tempDiff = "tempDiff";
 const char* EEPROM_valveSwitching = "valveSwitching";
+const char* EEPROM_pumpShutdown = "pumpShutdown";
 
 // +++++++++++++++++ Mighty setup method ++++++++++++++++
 void setup() {
@@ -1104,7 +1110,7 @@ void setup() {
   lastScreenUpdate = millis();
 
   Serial.println("Start initializing Wifi now");
-  //first parameter is name of access point, second is the password
+
   wifiManager.autoConnect("ESP32-AP");
 
   timeClient.begin(); 
@@ -1122,6 +1128,9 @@ void configureWifiApSetupMenu() {
   const char* input_config_latestHourToStartPump = "<br/><label for='config_latestHourToStartPump'>Latest time to start pump (24h)</label><input type='text' name='config_latestHourToStartPump'>";
   new (&config_latestHourToStartPump) WiFiManagerParameter(input_config_latestHourToStartPump);
 
+  const char* input_config_pumpShutdownTime = "<br/><label for='config_pumpShutdownTime'>At which time the pump will always get shutdown (24h)</label><input type='text' name='config_pumpShutdownTime'>";
+  new (&config_pumpShutdownTime) WiFiManagerParameter(input_config_pumpShutdownTime);
+
   const char* input_config_temperatureDifference = "<br/><label for='config_temperatureDifference'>Temperature difference required to switch</label><input type='text' name='config_temperatureDifference'>";
   new (&config_temperatureDifference) WiFiManagerParameter(input_config_temperatureDifference);
   
@@ -1133,6 +1142,7 @@ void configureWifiApSetupMenu() {
   wifiManager.addParameter(&config_targetTemperature);
   wifiManager.addParameter(&config_definedPumpRuntime);
   wifiManager.addParameter(&config_latestHourToStartPump);
+  wifiManager.addParameter(&config_pumpShutdownTime);
   wifiManager.addParameter(&config_temperatureDifference);
   wifiManager.addParameter(&config_engineValveSwitchingTimespanSeconds);
   wifiManager.setSaveParamsCallback(saveParamCallback);
@@ -1161,6 +1171,9 @@ void readConfigFromEEPROM() {
   latestHourToStartPump = preferences.getInt(EEPROM_pumpStartAt, latestHourToStartPump);
   Serial.println("Successful read and set latestHourToStartPump from EEPROM:" + String(latestHourToStartPump));
 
+  pumpShutdownTime = preferences.getInt(EEPROM_pumpShutdown, pumpShutdownTime);
+  Serial.println("Successful read and set pumpShutdownTime from EEPROM:" + String(pumpShutdownTime));
+
   definedTemperatureDifference = preferences.getFloat(EEPROM_tempDiff, definedTemperatureDifference);
   Serial.println("Successful read and set definedTemperatureDifference from EEPROM:" + String(definedTemperatureDifference));
 
@@ -1176,12 +1189,14 @@ void saveParamCallback(){
   float new_config_targetTemperature = getParam("config_targetTemperature").toFloat();
   float new_config_definedPumpRuntime =  getParam("config_definedPumpRuntime").toFloat();
   int new_config_latestHourToStartPump = getParam("config_latestHourToStartPump").toInt();
+  int new_config_pumpShutdownTime = getParam("config_pumpShutdownTime").toInt();
   float new_config_temperatureDifference = getParam("config_temperatureDifference").toFloat();
   int new_config_engineValveSwitchingTimespanSeconds = getParam("config_engineValveSwitchingTimespanSeconds").toInt();
   
   Serial.println("Save param to EEPROM: config_targetTemperature = " + String(new_config_targetTemperature));
   Serial.println("Save param to EEPROM: config_definedPumpRuntime = " + String(new_config_definedPumpRuntime));
   Serial.println("Save param to EEPROM: config_latestHourToStartPump = " + String(new_config_latestHourToStartPump));
+  Serial.println("Save param to EEPROM: config_pumpShutdownTime = " + String(new_config_pumpShutdownTime));
   Serial.println("Save param to EEPROM: config_temperatureDifference = " + String(new_config_temperatureDifference));
   Serial.println("Save param to EEPROM: config_engineValveSwitchingTimespanSeconds = " + String(new_config_engineValveSwitchingTimespanSeconds));
   
@@ -1189,6 +1204,7 @@ void saveParamCallback(){
   preferences.putFloat(EEPROM_targetTemp, new_config_targetTemperature);
   preferences.putFloat(EEPROM_pumpRuntime, new_config_definedPumpRuntime);
   preferences.putInt(EEPROM_pumpStartAt, new_config_latestHourToStartPump);
+  preferences.putInt(EEPROM_pumpShutdown, new_config_pumpShutdownTime);
   preferences.putFloat(EEPROM_tempDiff, new_config_temperatureDifference);
   preferences.putInt(EEPROM_valveSwitching, new_config_engineValveSwitchingTimespanSeconds);
   preferences.end();
@@ -1197,6 +1213,7 @@ void saveParamCallback(){
   targetTemperature = new_config_targetTemperature;
   definedPumpRuntime = new_config_definedPumpRuntime;
   latestHourToStartPump = new_config_latestHourToStartPump;
+  pumpShutdownTime = new_config_pumpShutdownTime;
   definedTemperatureDifference = new_config_temperatureDifference;
   engineValveSwitchingTimespanSeconds = new_config_engineValveSwitchingTimespanSeconds;
 }
@@ -1215,7 +1232,6 @@ void loop() {
 
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
     timeClient.update();
-    Serial.println("Measure temperatures at: " + timeClient.getFormattedTime());
   
     handleTemperatureMeasurement();
     writeStats();
@@ -1255,6 +1271,12 @@ void writeStats() {
   }
 
   dailyTempChange = temperaturePool - morningTemperaturePool;
+
+  // When the pump run for 2 minutes (and less than 3 minutes), save the daily morning temperature
+  if (dailyPumpRuntime >= 120000 && dailyPumpRuntime < 180000) {
+    Serial.println("Daily morning temperature was set to current temperature of the pool.");
+    morningTemperaturePool = temperaturePool;
+  }
   
   lastMeasurement = millis();
 }
@@ -1264,8 +1286,9 @@ void handlePumpAndValve() {
 
   long definedPumpRuntimeMillis = ((long)(definedPumpRuntime * 3600000));
   dailyPumpRuntimeReached = dailyPumpRuntime > definedPumpRuntimeMillis;
+  nightTimeReached = timeClient.getHours() >= pumpShutdownTime;
   
-  pumpAlwaysOn = timeClient.getHours() >= latestHourToStartPump && !dailyPumpRuntimeReached;
+  pumpAlwaysOn = timeClient.getHours() >= latestHourToStartPump && timeClient.getHours()< pumpShutdownTime && !dailyPumpRuntimeReached;
   
   bool targetIsHeating = temperaturePool < targetTemperature;
   unsigned long timeDiffLastEngineValveSwitch = millis() - lastChangeEngineValve;
@@ -1295,10 +1318,15 @@ void handlePumpAndValve() {
     Serial.println("Starting pump - because we already passed the latest time for starting pump.");
     startPump();
   }
+
+  if (dailyPumpRuntimeReached || nightTimeReached) {
+    Serial.println("Night time or daily pump runtime reached. Shutdown pump now");
+    stopPump();
+  }
 }
 
 void startPump() {
-  if (!enabledPump && !dailyPumpRuntimeReached && timeDiffEngineValvePassed) {
+  if (!enabledPump && !dailyPumpRuntimeReached && !nightTimeReached && timeDiffEngineValvePassed) {
     Serial.println("Starting pump now");
     digitalWrite(relayPump, HIGH);
     enabledPump = true;
@@ -1528,6 +1556,7 @@ void tryToResetDailyStats() {
       dailyHeaterRuntime = 0;
       morningTemperaturePool = temperaturePool;
       dailyPumpRuntimeReached = false;
+      nightTimeReached = false;
       pumpAlwaysOn = false;
       timeDiffEngineValvePassed = false;
       todayWeather = 0;
