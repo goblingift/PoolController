@@ -9,6 +9,7 @@
 #include <Preferences.h>
 
 
+
 const unsigned char goblingift_logo [] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -991,11 +992,11 @@ NTPClient timeClient(ntpUDP, 7200);
 Preferences preferences;
 
 // integration system DS18B20s sensor addresses:
-//uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
-//uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
+uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
+uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
 // production system DS18B20s sensor addresses:
-uint8_t sensorPool[8] = { 0x28, 0xB3, 0x6D, 0x0d, 0x3A, 0x19, 0x01, 0x94 };
-uint8_t sensorSolarHeater[8] = { 0x28, 0x75, 0xEA, 0xD3, 0x39, 0x19, 0x01, 0xD3 };
+//uint8_t sensorPool[8] = { 0x28, 0xB3, 0x6D, 0x0d, 0x3A, 0x19, 0x01, 0x94 };
+//uint8_t sensorSolarHeater[8] = { 0x28, 0x75, 0xEA, 0xD3, 0x39, 0x19, 0x01, 0xD3 };
 
 // runtime variables
 unsigned long lastScreenUpdate;
@@ -1115,7 +1116,7 @@ void setup() {
 
   wifiManager.autoConnect("ESP32-AP");
 
-  timeClient.begin(); 
+  timeClient.begin();   
 }
 
 // Defines the html view of the configuration setup menu and which values will get stored into EEPROM afterwards
@@ -1224,12 +1225,16 @@ void loop() {
 
   int buttonState = digitalRead(setupButtonPin);
   if ((buttonState == HIGH) && (millis() - lastTimeSetupButtonPressed >= manualConfigTimeout)) {
-    lastTimeSetupButtonPressed = millis();
-    Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+    // small delay, to prevent faulty button-click readings
+    delay(50);
+    if ((buttonState == HIGH)) {
+      lastTimeSetupButtonPressed = millis();
+      Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
 
-    wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
-    displayWifiApInformations();
-    wifiManager.startConfigPortal("ESP32-AP");
+      wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
+      displayWifiApInformations();
+      wifiManager.startConfigPortal("ESP32-AP");
+    }
   }
 
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
