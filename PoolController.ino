@@ -7,6 +7,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Preferences.h>
+#include <PinButton.h> // https://github.com/poelstra/arduino-multi-button
 #include "image_processor.h" 
    
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
@@ -17,6 +18,8 @@ const int ledGreenPin = 12;
 const int relayEngineValve = 26;
 const int relayPump = 27;
 const int setupButtonPin = 32;
+
+PinButton setupButton(setupButtonPin);
 
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(oneWireBus);
@@ -75,6 +78,8 @@ bool timeDiffEngineValvePassed;
 // Contains todays weather. 0 if no data today. 1 for sunny, 2 for sunny/cloudy and 3 for cloudy.
 byte todayWeather = 0;
 unsigned long lastTimeSetupButtonPressed;
+bool manualMode = false;
+
 
 //stores the current image index- for animation purpose
 int imageIndex = 1;
@@ -271,29 +276,28 @@ void saveParamCallback(){
   engineValveSwitchingTimespanSeconds = new_config_engineValveSwitchingTimespanSeconds;
 }
 
-void loop() { 
+void loop() {
 
-  int buttonState = digitalRead(setupButtonPin);
-  if ((buttonState == HIGH) && (millis() - lastTimeSetupButtonPressed >= manualConfigTimeout)) {
-    // small delay, to prevent faulty button-click readings
-    delay(50);
-    if ((buttonState == HIGH)) {
-      lastTimeSetupButtonPressed = millis();
-      Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+  setupButton.update();
 
-      wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
-      displayWifiApInformations();
-      wifiManager.startConfigPortal("ESP32-AP");
-    }
+  if (setupButton.isSingleClick()) {
+    singleTap();
+  } else if (setupButton.isDoubleClick()) {
+    doubleTap();
+  } else if (setupButton.isLongClick()) {
+    hold();
   }
-
+  
   if (millis() - lastMeasurement >= measurementIntervalMillis) {
     timeClient.update();
   
     handleTemperatureMeasurement();
     writeStats();
-    handlePumpAndValve();
     
+    if (manualMode == false) {
+      handlePumpAndValve();
+    }
+        
     tryToResetDailyStats();
   }
 
@@ -301,6 +305,31 @@ void loop() {
     updateDisplay();
     lastScreenUpdate = millis();
   }
+}
+
+void singleTap() {
+  Serial.println("SINGLE TAPPED!");
+}
+
+void doubleTap() {
+  Serial.println("DOUBLE TAPPED! Activate/Deactivate manual mode now!");
+  if (manualMode == false) {
+    manualMode = true;
+    Serial.println("Activate manual mode now- pump always ON, heater always ON. Double click again to deactivate)");
+    heaterOn();
+    startPump();
+  } else {
+    Serial.println("Deactivate manual mode now.");
+    manualMode = false;
+  }
+}
+
+void hold() {
+  Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+
+  wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
+  displayWifiApInformations();
+  wifiManager.startConfigPortal("ESP32-AP");
 }
 
 // Triggers temperature measurement
@@ -383,7 +412,7 @@ void handlePumpAndValve() {
 }
 
 void startPump() {
-  if (!enabledPump && !dailyPumpRuntimeReached && !nightTimeReached && timeDiffEngineValvePassed) {
+  if ((manualMode == true) || (!enabledPump && !dailyPumpRuntimeReached && !nightTimeReached && timeDiffEngineValvePassed)) {
     Serial.println("Starting pump now");
     digitalWrite(relayPump, HIGH);
     enabledPump = true;
@@ -407,7 +436,7 @@ void heaterOff() {
   }
 }
 void heaterOn() {
-  if (!enabledHeater && timeDiffEngineValvePassed) {
+  if ((manualMode == true) || (!enabledHeater && timeDiffEngineValvePassed)) {
     Serial.println("Close engine-valve now");
     digitalWrite(relayEngineValve, HIGH);
     enabledHeater = true;
@@ -434,7 +463,7 @@ void updateDisplay() {
   u8g2.clearBuffer();
   u8g2.setBitmapMode(false /* solid */);
   u8g2.setDrawColor(1); 
-    
+   
   u8g2.setCursor(0, 32);
   if (enabledHeater) {
     if (enabledPump) {
@@ -501,6 +530,11 @@ void updateDisplay() {
   printDailyHeaterRuntime();
   printDailyPumpRuntime();
   calculateWeatherToday();
+
+  if (manualMode == true) {
+    u8g2.setCursor(40, 0);
+    u8g2.print("MANUAL MODE");
+  }
   
   u8g2.setFont(u8g2_font_unifont_t_symbols);
   switch(todayWeather) {
