@@ -420,7 +420,7 @@ void startPump() {
   }  
 }
 void stopPump() {
-  if (enabledPump && !pumpAlwaysOn && timeDiffEngineValvePassed) {
+  if (manualMode == false && enabledPump && !pumpAlwaysOn && timeDiffEngineValvePassed) {
     Serial.println("Stop pump now");
     digitalWrite(relayPump, LOW);
     enabledPump = false;
