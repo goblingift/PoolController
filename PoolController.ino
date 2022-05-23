@@ -250,7 +250,7 @@ String processorDashboard(const String& var){
   
   if(var == "BUTTONPLACEHOLDER"){
     String buttons = "";
-    buttons += "<h4>Output - GPIO 2</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"99\" " + isActive + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Manual Mode active:</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"99\" " + isActive + "><span class=\"slider\"></span></label>";
     return buttons;
   }
   return String();
