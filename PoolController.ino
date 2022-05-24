@@ -3,12 +3,16 @@
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <WiFiManager.h>
+#include <WiFi.h>
 #include <time.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <Preferences.h>
 #include <PinButton.h> // https://github.com/poelstra/arduino-multi-button
-#include "image_processor.h" 
+#include <AsyncTCP.h>           // https://github.com/me-no-dev/AsyncTCP
+#include <ESPAsyncWebServer.h>  // https://github.com/me-no-dev/ESPAsyncWebServer
+#include "image_processor.h"
+#include "webserver_processor.h"
    
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
@@ -38,6 +42,18 @@ WiFiManagerParameter config_latestHourToStartPump;
 WiFiManagerParameter config_pumpShutdownTime;
 WiFiManagerParameter config_temperatureDifference;
 WiFiManagerParameter config_engineValveSwitchingTimespanSeconds;
+
+
+// Prometheus endpoint configuration
+const char* PARAM_INPUT_1 = "output";
+const char* PARAM_INPUT_2 = "state";
+AsyncWebServer server(80);
+
+const char state_html[] PROGMEM = R"rawliteral(
+%PLACEHOLDER%
+)rawliteral";
+
+bool portalRunning = false;
 
 // Time Server config
 WiFiUDP ntpUDP;
@@ -117,6 +133,45 @@ void setup() {
 
   readConfigFromEEPROM();
   configureWifiApSetupMenu();
+
+  Serial.println("Start initializing Wifi now");
+  wifiManager.autoConnect("ESP32-AP");
+  timeClient.begin();   
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", webserver_processor_h::index_html, processorDashboard);
+  });
+
+  // Route for prometheus
+  server.on("/state", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/plain;version=0.0.4;charset=utf-8", state_html, processorPrometheus);
+  });
+
+  // Route for action triggered method
+  server.on("/update", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage1;
+    String inputMessage2;
+    // GET input1 value on <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
+    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2)) {
+      inputMessage1 = request->getParam(PARAM_INPUT_1)->value();
+      inputMessage2 = request->getParam(PARAM_INPUT_2)->value();
+
+      // Handler for manual-mode input
+      if (inputMessage1.toInt() == 99) {
+        Serial.println("Will set manual-mode to:" + inputMessage2);
+        if (inputMessage2.toInt() == 0) {
+          manualMode = false;
+        } else {
+          manualMode = true;
+        }
+      }
+    }
+    request->send(200, "text/plain", "OK");
+  });
+
+  // Start server
+  server.begin();
   
   u8g2.begin();
   u8g2.setFont(u8g2_font_6x10_tf);
@@ -161,17 +216,54 @@ void setup() {
   u8g2.drawStr(0,15,"Starting Goblingift Pool-Controller!");
   u8g2.sendBuffer();
   delay(2000);
-  
-  //u8g2.drawXBMP(0, 0, 128, 64, image_processor_h::goblingift_logo);
-  
+    
   lastMeasurement = millis();
   lastScreenUpdate = millis();
+}
 
-  Serial.println("Start initializing Wifi now");
+String processorPrometheus(const String& var){
+  if(var == "PLACEHOLDER"){
+    String pinStateDecimal = "0";
+    if(digitalRead(2)) {
+      pinStateDecimal = "1";
+    }
 
-  wifiManager.autoConnect("ESP32-AP");
+    String scrapingText = "# HELP io_temperature_heater temperature of the heater \n";
+    scrapingText += "# TYPE io_temperature_heater gauge\n";
+    scrapingText += "io_temperature_heater " + convertTemperature(temperatureHeater) + " \n";
+    
+    scrapingText += "# HELP io_temperature_pool temperature of the pool \n";
+    scrapingText += "# TYPE io_temperature_pool gauge\n";
+    scrapingText += "io_temperature_pool " + convertTemperature(temperaturePool) + " \n";
 
-  timeClient.begin();   
+    scrapingText += "# HELP io_pump_active boolean if the pump is currently activated \n";
+    scrapingText += "# TYPE io_pump_active gauge\n";
+    String strPumpActive = enabledPump ? "1" : "0";
+    scrapingText += "io_pump_active " + strPumpActive + " \n";
+
+    scrapingText += "# HELP io_heater_active boolean if the heater is currently activated \n";
+    scrapingText += "# TYPE io_heater_active gauge\n";
+    String strHeaterActive = enabledHeater ? "1" : "0";
+    scrapingText += "io_heater_active " + strHeaterActive + " \n";
+    
+    return scrapingText;
+  }
+  return String();
+}
+
+
+String processorDashboard(const String& var){
+  String isActive = "";
+  if (manualMode) {
+    isActive = "checked";
+  }
+  
+  if(var == "BUTTONPLACEHOLDER"){
+    String buttons = "";
+    buttons += "<h4>Manual Mode active:</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"99\" " + isActive + "><span class=\"slider\"></span></label>";
+    return buttons;
+  }
+  return String();
 }
 
 // Defines the html view of the configuration setup menu and which values will get stored into EEPROM afterwards
