@@ -235,6 +235,16 @@ String processorPrometheus(const String& var){
     scrapingText += "# HELP io_temperature_pool temperature of the pool \n";
     scrapingText += "# TYPE io_temperature_pool gauge\n";
     scrapingText += "io_temperature_pool " + convertTemperature(temperaturePool) + " \n";
+
+    scrapingText += "# HELP io_pump_active boolean if the pump is currently activated \n";
+    scrapingText += "# TYPE io_pump_active gauge\n";
+    String strPumpActive = enabledPump ? "1" : "0";
+    scrapingText += "io_pump_active " + strPumpActive + " \n";
+
+    scrapingText += "# HELP io_heater_active boolean if the heater is currently activated \n";
+    scrapingText += "# TYPE io_heater_active gauge\n";
+    String strHeaterActive = enabledHeater ? "1" : "0";
+    scrapingText += "io_heater_active " + strHeaterActive + " \n";
     
     return scrapingText;
   }
