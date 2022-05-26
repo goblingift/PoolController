@@ -3,7 +3,6 @@
 #include <DallasTemperature.h>
 #include <Wire.h>
 #include <U8g2lib.h>
-#include <ESP_WiFiManager.h> //https://github.com/khoih-prog/ESP_WiFiManager
 #include <WiFi.h>
 #include <time.h>
 #include <NTPClient.h>
@@ -14,7 +13,9 @@
 #include <ESPAsyncWebServer.h>  // https://github.com/me-no-dev/ESPAsyncWebServer
 #include "image_processor.h"
 #include "webserver_processor.h"
-   
+#include <ESP_WiFiManager.h> //https://github.com/khoih-prog/ESP_WiFiManager
+
+
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 // GPIO connections
@@ -34,16 +35,6 @@ DallasTemperature sensors(&oneWire);
 
 // variable to hold device addresses
 DeviceAddress Thermometer;
-
-// Manages wifi and connect to local wifi network
-WiFiManager wifiManager;
-WiFiManagerParameter config_targetTemperature;
-WiFiManagerParameter config_definedPumpRuntime;
-WiFiManagerParameter config_latestHourToStartPump;
-WiFiManagerParameter config_pumpShutdownTime;
-WiFiManagerParameter config_temperatureDifference;
-WiFiManagerParameter config_engineValveSwitchingTimespanSeconds;
-
 
 // Prometheus endpoint configuration
 const char* PARAM_INPUT_1 = "output";
@@ -127,7 +118,21 @@ const char* EEPROM_tempDiff = "tempDiff";
 const char* EEPROM_valveSwitching = "valveSwitching";
 const char* EEPROM_pumpShutdown = "pumpShutdown";
 
+// Manages wifi and connect to local wifi network
+char readFromConfig_targetTemperature [10] = "35";
+char readFromConfig_definedPumpRuntime [10] = "8";
+char readFromConfig_latestHourToStartPump [10] = "18";
+char readFromConfig_pumpShutdownTime [10] = "21";
+char readFromConfig_temperatureDifference [10] = "0.5";
+char readFromConfig_engineValveSwitchingTimespanSeconds [10] = "60";
 
+ESP_WiFiManager wifiManager;
+ESP_WMParameter config_targetTemperature("config_targetTemperature", "target temperature celsius", readFromConfig_targetTemperature, 2);
+ESP_WMParameter config_definedPumpRuntime("config_definedPumpRuntime", "maximum daily pump runtime in hours", readFromConfig_definedPumpRuntime, 2);
+ESP_WMParameter config_latestHourToStartPump("config_latestHourToStartPump", "latest hour to start pump always", readFromConfig_latestHourToStartPump, 2);
+ESP_WMParameter config_pumpShutdownTime("config_pumpShutdownTime", "at which time the pump always shut off", readFromConfig_pumpShutdownTime, 2);
+ESP_WMParameter config_temperatureDifference("config_temperatureDifference", "required temperature difference to switch valve", readFromConfig_temperatureDifference, 4);
+ESP_WMParameter config_engineValveSwitchingTimespanSeconds("config_engineValveSwitchingTimespanSeconds", "how many seconds to wait until next valve switch", readFromConfig_engineValveSwitchingTimespanSeconds, 4);
 
 // function definitions
 void printDailyPumpRuntime();
@@ -301,43 +306,13 @@ String processorDashboard(const String& var){
 
 // Defines the html view of the configuration setup menu and which values will get stored into EEPROM afterwards
 void configureWifiApSetupMenu() {
-
-  const char* input_config_targetTemperature = "<br/><label for='config_targetTemperature'>Target Temperature (celsius)</label><input type='text' name='config_targetTemperature'>";
-  new (&config_targetTemperature) WiFiManagerParameter(input_config_targetTemperature);
-  
-  const char* input_config_definedPumpRuntime = "<br/><label for='config_definedPumpRuntime'>Daily pump-runtime (hours)</label><input type='text' name='config_definedPumpRuntime'>";
-  new (&config_definedPumpRuntime) WiFiManagerParameter(input_config_definedPumpRuntime);
-  
-  const char* input_config_latestHourToStartPump = "<br/><label for='config_latestHourToStartPump'>Latest time to start pump (24h)</label><input type='text' name='config_latestHourToStartPump'>";
-  new (&config_latestHourToStartPump) WiFiManagerParameter(input_config_latestHourToStartPump);
-
-  const char* input_config_pumpShutdownTime = "<br/><label for='config_pumpShutdownTime'>At which time the pump will always get shutdown (24h)</label><input type='text' name='config_pumpShutdownTime'>";
-  new (&config_pumpShutdownTime) WiFiManagerParameter(input_config_pumpShutdownTime);
-
-  const char* input_config_temperatureDifference = "<br/><label for='config_temperatureDifference'>Temperature difference required to switch</label><input type='text' name='config_temperatureDifference'>";
-  new (&config_temperatureDifference) WiFiManagerParameter(input_config_temperatureDifference);
-  
-  const char* input_config_engineValveSwitchingTimespanSeconds = "<br/><label for='config_engineValveSwitchingTimespanSeconds'>Required seconds between each engine-valve switch</label><input type='text' name='config_engineValveSwitchingTimespanSeconds'>";
-  new (&config_engineValveSwitchingTimespanSeconds) WiFiManagerParameter(input_config_engineValveSwitchingTimespanSeconds);
-    
-  std::vector<const char *> menu = {"wifi","info","param","sep","restart","exit"};
-  wifiManager.setMenu(menu);
   wifiManager.addParameter(&config_targetTemperature);
   wifiManager.addParameter(&config_definedPumpRuntime);
   wifiManager.addParameter(&config_latestHourToStartPump);
   wifiManager.addParameter(&config_pumpShutdownTime);
+  wifiManager.addParameter(&config_targetTemperature);
   wifiManager.addParameter(&config_temperatureDifference);
   wifiManager.addParameter(&config_engineValveSwitchingTimespanSeconds);
-  wifiManager.setSaveParamsCallback(saveParamCallback);
-}
-
-String getParam(String name){
-  //read parameter from server, for customhmtl input
-  String value;
-  if(wifiManager.server->hasArg(name)) {
-    value = wifiManager.server->arg(name);
-  }
-  return value;
 }
 
 // Reading preferences from EEPROM (Which were set previous by Wifi-Config Page, or use default
