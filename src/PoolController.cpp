@@ -129,9 +129,34 @@ const char* EEPROM_pumpShutdown = "pumpShutdown";
 
 
 
-// Method definitions
+// function definitions
 void printDailyPumpRuntime();
-
+void printDailyHeaterRuntime();
+String processorPrometheus(const String& var);
+String processorDashboard(const String& var);
+void configureWifiApSetupMenu();
+String getParam(String name);
+void readConfigFromEEPROM();
+void saveParamCallback();
+void singleTap();
+void doubleTap();
+void hold();
+void handleTemperatureMeasurement();
+void writeStats();
+void handlePumpAndValve();
+void startPump();
+void stopPump();
+void heaterOff();
+void heaterOn();
+void displayWifiApInformations();
+void updateDisplay();
+void printDailyHeaterRuntime();
+void printDailyPumpRuntime();
+void calculateWeatherToday();
+void printAddress(DeviceAddress deviceAddress);
+float readTemperature(DeviceAddress deviceAddress);
+String convertTemperature(float tempC);
+void tryToResetDailyStats();
 
 
 // +++++++++++++++++ Mighty setup method ++++++++++++++++
@@ -756,9 +781,3 @@ void tryToResetDailyStats() {
   }
     
 }
-
-void types(String a) { Serial.println("it's a String"); }
-void types(int a) { Serial.println("it's an int"); }
-void types(char *a) { Serial.println("it's a char*"); }
-void types(float a) { Serial.println("it's a float"); }
-void types(bool a) { Serial.println("it's a bool"); }
