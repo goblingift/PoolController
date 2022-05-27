@@ -10,10 +10,11 @@
 #include <Preferences.h>
 #include <PinButton.h> // https://github.com/poelstra/arduino-multi-button
 #include <AsyncTCP.h>           // https://github.com/me-no-dev/AsyncTCP
+#include <ESP_WiFiManager.h> //https://github.com/khoih-prog/ESP_WiFiManager
+#define WEBSERVER_H
 #include <ESPAsyncWebServer.h>  // https://github.com/me-no-dev/ESPAsyncWebServer
 #include "image_processor.h"
 #include "webserver_processor.h"
-#include <ESP_WiFiManager.h> //https://github.com/khoih-prog/ESP_WiFiManager
 
 
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
@@ -166,8 +167,8 @@ void tryToResetDailyStats();
 
 // +++++++++++++++++ Mighty setup method ++++++++++++++++
 void setup() {
-  // Begin Serial on 115200
-  Serial.begin(115200);
+  // Begin Serial on 9600
+  Serial.begin(9600);
 
   readConfigFromEEPROM();
   configureWifiApSetupMenu();
