@@ -400,28 +400,19 @@ void loop() {
 }
 
 void singleTap() {
-  Serial.println("SINGLE TAPPED!");
+  Serial.println("SINGLE TAPPED! No action configured!");
 }
 
 void doubleTap() {
-  Serial.println("DOUBLE TAPPED! Activate/Deactivate manual mode now!");
-  if (manualMode == false) {
-    manualMode = true;
-    Serial.println("Activate manual mode now- pump always ON, heater always ON. Double click again to deactivate)");
-    heaterOn();
-    startPump();
-  } else {
-    Serial.println("Deactivate manual mode now.");
-    manualMode = false;
-  }
-}
-
-void hold() {
-  Serial.println("Setup button pressed- starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+  Serial.println("Setup button pressed 2x - starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
 
   wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
   displayWifiApInformations();
   wifiManager.startConfigPortal("ESP32-AP");
+}
+
+void hold() {
+  Serial.println("Button hold! No action configured!");
 }
 
 // Triggers temperature measurement
