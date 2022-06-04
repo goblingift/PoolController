@@ -13,7 +13,7 @@
 #include <ESPAsyncWebServer.h>  // https://github.com/me-no-dev/ESPAsyncWebServer
 #include "image_processor.h"
 #include "webserver_processor.h"
-   
+
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 // GPIO connections
@@ -28,7 +28,7 @@ PinButton setupButton(setupButtonPin);
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(oneWireBus);
 
-// Pass our oneWire reference to Dallas Temperature sensor 
+// Pass our oneWire reference to Dallas Temperature sensor
 DallasTemperature sensors(&oneWire);
 
 // variable to hold device addresses
@@ -164,6 +164,8 @@ void setup() {
           manualMode = false;
         } else {
           manualMode = true;
+          heaterOn();
+          startPump();
         }
       }
     }
@@ -404,11 +406,7 @@ void singleTap() {
 }
 
 void doubleTap() {
-  Serial.println("Setup button pressed 2x - starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
-
-  wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
-  displayWifiApInformations();
-  wifiManager.startConfigPortal("ESP32-AP");
+  Serial.println("DOUBLE TAPPED! No action configured!");
 }
 
 void hold() {
@@ -422,6 +420,10 @@ void handleTemperatureMeasurement() {
   sensors.requestTemperatures(); 
   temperaturePool = readTemperature(sensorPool);
   temperatureHeater = readTemperature(sensorSolarHeater);
+
+  // workaround for invalid measurement (-127 C)
+  if (temperatureHeater < 0) temperatureHeater = 0;
+  
   digitalWrite(ledGreenPin, LOW);
 
   if (morningTemperaturePool == 0.0) morningTemperaturePool = temperaturePool;
