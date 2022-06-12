@@ -65,9 +65,11 @@ Preferences preferences;
 // integration system DS18B20s sensor addresses:
 uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
 uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
+uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0xe5, 0xcb, 0x07, 0x13, 0x21, 0x01, 0xfd }; 
 // production system DS18B20s sensor addresses:
 //uint8_t sensorPool[8] = { 0x28, 0xB3, 0x6D, 0x0d, 0x3A, 0x19, 0x01, 0x94 };
 //uint8_t sensorSolarHeater[8] = { 0x28, 0x75, 0xEA, 0xD3, 0x39, 0x19, 0x01, 0xD3 };
+//uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0x2f, 0xa4, 0x1c, 0x13, 0x21, 0x01, 0x7f }; 
 
 // runtime variables
 unsigned long lastScreenUpdate;
@@ -76,7 +78,7 @@ unsigned long lastChangeEngineValve;
 int deviceCount = 0;
 bool enabledHeater = false;
 bool enabledPump = false;
-float temperatureHeater;
+float temperatureHeater, temperatureHeaterOne, temperatureHeaterTwo;
 float temperaturePool;
 int lastResetDay = 0;
 // daily stats
@@ -193,6 +195,7 @@ void setup() {
   sensors.begin();
   sensors.setResolution(sensorPool, 10);
   sensors.setResolution(sensorSolarHeater, 10);
+  sensors.setResolution(sensorSolarHeaterTwo, 10);
   Serial.print("Started DS18B20 temperature sensor");
 
   // locate devices on the bus
@@ -417,12 +420,17 @@ void hold() {
 void handleTemperatureMeasurement() {
   digitalWrite(ledGreenPin, HIGH);
   delay(50);
-  sensors.requestTemperatures(); 
-  temperaturePool = readTemperature(sensorPool);
-  temperatureHeater = readTemperature(sensorSolarHeater);
+  sensors.requestTemperatures();
+  temperaturePool = readTemperature(sensorPool, temperaturePool);
+  temperatureHeaterOne = readTemperature(sensorSolarHeater, temperatureHeater);
+  temperatureHeaterTwo = readTemperature(sensorSolarHeaterTwo, temperatureHeater);
 
-  // workaround for invalid measurement (-127 C)
-  if (temperatureHeater < 0) temperatureHeater = 0;
+  // always take the hotter heater as reference
+  if (temperatureHeaterOne > temperatureHeaterTwo) {
+    temperatureHeater = temperatureHeaterOne;
+  } else {
+    temperatureHeater = temperatureHeaterTwo;
+  }
   
   digitalWrite(ledGreenPin, LOW);
 
@@ -706,9 +714,17 @@ void printAddress(DeviceAddress deviceAddress) {
   Serial.println("");
 }
 
-float readTemperature(DeviceAddress deviceAddress) {
+// Try to read the temperature of given device. If measurement is faulty (-127.0),
+// then simply return the last measurement value
+float readTemperature(DeviceAddress deviceAddress, float oldValue) {
   float tempC = sensors.getTempC(deviceAddress);
-  return tempC;
+
+  if (tempC < -100) {
+    Serial.println("Invalid measurement! Return last value");
+    return oldValue;
+  } else {
+    return tempC;
+  }
 }
 
 String convertTemperature(float tempC) {
