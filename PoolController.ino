@@ -63,13 +63,13 @@ NTPClient timeClient(ntpUDP, 7200);
 Preferences preferences;
 
 // integration system DS18B20s sensor addresses:
-uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
-uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
-uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0xe5, 0xcb, 0x07, 0x13, 0x21, 0x01, 0xfd }; 
+//uint8_t sensorPool[8] = { 0x28, 0x51, 0x32, 0x2A, 0x0B, 0x00, 0x00, 0xAA };
+//uint8_t sensorSolarHeater[8] = { 0x28, 0xF9, 0xD8, 0xFD, 0x39, 0x19, 0x01, 0x26 };
+//uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0xe5, 0xcb, 0x07, 0x13, 0x21, 0x01, 0xfd }; 
 // production system DS18B20s sensor addresses:
-//uint8_t sensorPool[8] = { 0x28, 0xB3, 0x6D, 0x0d, 0x3A, 0x19, 0x01, 0x94 };
-//uint8_t sensorSolarHeater[8] = { 0x28, 0x75, 0xEA, 0xD3, 0x39, 0x19, 0x01, 0xD3 };
-//uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0x2f, 0xa4, 0x1c, 0x13, 0x21, 0x01, 0x7f }; 
+uint8_t sensorPool[8] = { 0x28, 0xb3, 0x6D, 0x0d, 0x3a, 0x19, 0x01, 0x94 };
+uint8_t sensorSolarHeater[8] = { 0x28, 0x2f, 0xa4, 0x1c, 0x13, 0x21, 0x01, 0x7f };
+uint8_t sensorSolarHeaterTwo[8] = { 0x28, 0x9f, 0x20, 0x1a, 0x13, 0x21, 0x01, 0xa5 }; 
 
 // runtime variables
 unsigned long lastScreenUpdate;
@@ -103,22 +103,22 @@ bool manualMode = false;
 int imageIndex = 1;
 
 // configuration variables
-float targetTemperature = 35.0;
+float targetTemperature = 30.0;
 int dailyResetMinute = 00;
 int dailyResetHour = 6;
 int measurementIntervalMillis = 15000;
 int updateScreenIntervalMillis = 200;
 // temperature difference of pool & heater which is required to switch engine valve
-float definedTemperatureDifference = 5.0;
+float definedTemperatureDifference = 1.0;
 // defines how long system will wait until switching valve again
-int engineValveSwitchingTimespanSeconds = 10;
-float definedPumpRuntime = 8.0;
+int engineValveSwitchingTimespanSeconds = 600;
+float definedPumpRuntime = 6.0;
 // at which hour shall the pump get started
 int latestHourToStartPump = 18;
 // until which time the pump is allowed to be powered on
-int pumpShutdownTime = 21;
+int pumpShutdownTime = 20;
 // defines how long the manual started configuration should be visible
-int manualConfigTimeout = 60000;
+int manualConfigTimeout = 90000;
 
 // EEPROM keys
 const char* EEPROM_targetTemp = "targetTemp";
@@ -409,7 +409,13 @@ void singleTap() {
 }
 
 void doubleTap() {
-  Serial.println("DOUBLE TAPPED! No action configured!");
+
+  Serial.println("Setup button pressed 2x - starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
+
+  wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
+  displayWifiApInformations();
+  wifiManager.startConfigPortal("ESP32-AP");
+  
 }
 
 void hold() {
@@ -426,11 +432,12 @@ void handleTemperatureMeasurement() {
   temperatureHeaterTwo = readTemperature(sensorSolarHeaterTwo, temperatureHeater);
 
   // always take the hotter heater as reference
-  if (temperatureHeaterOne > temperatureHeaterTwo) {
-    temperatureHeater = temperatureHeaterOne;
-  } else {
-    temperatureHeater = temperatureHeaterTwo;
-  }
+  temperatureHeater = temperatureHeaterOne;
+//  if (temperatureHeaterOne > temperatureHeaterTwo) {
+//    temperatureHeater = temperatureHeaterOne;
+//  } else {
+//    temperatureHeater = temperatureHeaterTwo;
+//  }
   
   digitalWrite(ledGreenPin, LOW);
 
