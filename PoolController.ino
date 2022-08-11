@@ -411,11 +411,14 @@ void singleTap() {
 void doubleTap() {
 
   Serial.println("Setup button pressed 2x - starting Wifi AP to setup things for x milliseconds:" + String(manualConfigTimeout));
-
+  server.end();
+  
   wifiManager.setConfigPortalTimeout(manualConfigTimeout / 1000);
   displayWifiApInformations();
   wifiManager.startConfigPortal("ESP32-AP");
-  
+
+  Serial.println("Double tap logic ended- start common webserver again");
+  server.begin();
 }
 
 void hold() {
@@ -551,9 +554,9 @@ void displayWifiApInformations() {
   u8g2.setCursor(5, 0);
   u8g2.print("-SETUP MODE-");
   u8g2.setCursor(5, 25);
-  u8g2.print("Connect to Wifi:");
-  u8g2.setCursor(5, 50);
   u8g2.print("ESP32-AP");
+  u8g2.setCursor(5, 50);
+  u8g2.print("192.168.4.1");
   
   u8g2.sendBuffer(); 
 }
